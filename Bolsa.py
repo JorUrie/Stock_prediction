@@ -9,10 +9,6 @@ from sklearn.preprocessing import StandardScaler
 import pandas as pd
 import numpy as np
 from datetime import date, time # Import date and time for st.date_input, st.time_input
-from yahoo_finance import Share 
-
-yahoo = Share('YHOO')
-print(yahoo.get_open())
 
 Note = '''
 La información de las bolsas se consiguen de la siguiente manera:
