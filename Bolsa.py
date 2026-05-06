@@ -6,32 +6,9 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 import numpy as np
 import yfinance as yf
-import requests
-import urllib3
-
-# Calling the data from the API
-[
-  {
-    "Index": "NASDAQ",
-    "LastTradeWithCurrency": "129.09",
-    "LastTradeDateTime": "2015-03-02T16:04:29Z",
-    "LastTradePrice": "129.09",
-    "Yield": "1.46",
-    "LastTradeTime": "4:04PM EST",
-    "LastTradeDateTimeLong": "Mar 2, 4:04PM EST",
-    "Dividend": "0.47",
-    "StockSymbol": "AAPL",
-    "ID": "22144"
-  }
-]
-
-# Configurar sesión para ignorar verificación de certificados SSL
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-session = requests.Session()
-session.verify = False
 
 # Descargar datos directamente de Yahoo Finance (ejemplo con 1 año de historial para AAPL)
-data = yf.download('AAPL', period='1y', session=session)
+data = yf.download('AAPL', period='1y')
 
 # En yfinance, la fecha es el índice (index). La convertimos a timestamp numérico.
 X = (data.index.astype('int64') // 10**9).values.reshape(-1, 1)
