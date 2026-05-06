@@ -17,9 +17,11 @@ La información de las bolsas se consiguen de la siguiente manera:
 3. En la celda A1, escribe la siguiente fórmula para obtener datos históricos del Dow Jones:
    `=GOOGLEFINANCE("INDEXDJX:.DJI", "close", DATE(2020,1,1), DATE(2024,12,31), "DAILY")`
 4. Presiona Enter y espera a que se carguen los datos.
-5. Una vez que los datos estén cargados, selecciona las celdas con los datos (incluyendo los encabezados) y cópialos (Ctrl+C).
+5. Una vez que los datos estén cargados, selecciona las celdas con los datos (incluyendo los encabezados) y cópialos (Ctrl+C) o descárgalos.
 6. Abre un editor de texto (como Notepad) y pega los datos copiados (Ctrl+V).
 7. Guarda el archivo con el nombre "DJ_data.csv" y asegúrate de seleccionar "All Files" en el tipo de archivo para que se guarde como CSV. Asegúrate de que el archivo se guarde con la extensión .csv y no como un archivo de texto
+
+Link de descargas: https://www.google.com/finance/
 '''
 
 st.set_page_config(layout="wide")
@@ -53,7 +55,7 @@ def load_data(file):
 data = load_data(uploaded_file)
 
 if data is None:
-    st.warning("⚠️ No hay datos disponibles. Por favor, sube el archivo 'DJ_data.csv' en la barra lateral para continuar.")
+    st.warning("⚠️ No hay datos disponibles. Por favor, sube el archivo csv en la barra lateral para continuar.")
     st.stop()
 
 # Convertir la columna 'Date' a datetime y luego a numérico (timestamp)
