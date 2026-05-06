@@ -111,29 +111,25 @@ for file_input in files_to_process:
         catboost_model = train_catboost_model(X1_train, y1_train)
         knn_model, knn_scaler = train_knn_model(X1_train, y1_train)
 
-        # Calcular 5 proyecciones
-        proyecciones = []
-        base_datetime = datetime.combine(selected_date, selected_time)
+        # Calcular proyección para un punto
+        target_datetime = datetime.combine(selected_date, selected_time)
+        ts = np.array([[target_datetime.timestamp()]])
         
-        for i in range(5):
-            current_date = base_datetime + pd.Timedelta(days=i)
-            ts = np.array([[current_date.timestamp()]])
-            
-            p_svr = clf.predict(ts)[0]
-            p_cat = catboost_model.predict(ts)[0]
-            p_knn = knn_model.predict(knn_scaler.transform(ts))[0]
-            p_geo = (p_svr * p_cat * p_knn) ** (1/3)
-            
-            proyecciones.append({
-                "Fecha": current_date,
-                "SVR": p_svr,
-                "CatBoost": p_cat,
-                "KNN": p_knn,
-                "Media Geom": p_geo
-            })
+        p_svr = clf.predict(ts)[0]
+        p_cat = catboost_model.predict(ts)[0]
+        p_knn = knn_model.predict(knn_scaler.transform(ts))[0]
+        p_geo = (p_svr * p_cat * p_knn) ** (1/3)
+        
+        res_data = {
+            "Fecha": [target_datetime],
+            "SVR": [p_svr],
+            "CatBoost": [p_cat],
+            "KNN": [p_knn],
+            "Media Geom": [p_geo]
+        }
 
-        df_res = pd.DataFrame(proyecciones)
-        st.write("Tabla de Proyecciones (Próximos 5 días):")
+        df_res = pd.DataFrame(res_data)
+        st.write(f"Resultado de la Proyección ({target_datetime}):")
         st.dataframe(df_res.style.format({
             "SVR": "{:.2f}", "CatBoost": "{:.2f}", "KNN": "{:.2f}", "Media Geom": "{:.2f}"
         }))
@@ -142,10 +138,9 @@ for file_input in files_to_process:
         plot_data = data[['Date', 'Close']].copy().set_index('Date')
         combined_plot_data = plot_data.copy()
         
-        for _, row in df_res.iterrows():
-            combined_plot_data.loc[row['Fecha'], 'SVR'] = row['SVR']
-            combined_plot_data.loc[row['Fecha'], 'CatBoost'] = row['CatBoost']
-            combined_plot_data.loc[row['Fecha'], 'KNN'] = row['KNN']
-            combined_plot_data.loc[row['Fecha'], 'Media'] = row['Media Geom']
+        combined_plot_data.loc[target_datetime, 'SVR'] = p_svr
+        combined_plot_data.loc[target_datetime, 'CatBoost'] = p_cat
+        combined_plot_data.loc[target_datetime, 'KNN'] = p_knn
+        combined_plot_data.loc[target_datetime, 'Media'] = p_geo
 
         st.line_chart(combined_plot_data[['Close', 'SVR', 'CatBoost', 'KNN', 'Media']])
