@@ -3,3 +3,4 @@ pandas
 numpy<2.0.0
 scikit-learn
 catboost==1.2.5
+yahoo_finance
