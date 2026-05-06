@@ -17,7 +17,7 @@ La información de las bolsas se consiguen de la siguiente manera:
 3. En la celda A1, escribe la siguiente fórmula para obtener datos históricos del Dow Jones:
    `=GOOGLEFINANCE("INDEXDJX:.DJI", "close", DATE(2020,1,1), DATE(2024,12,31), "DAILY")`
 4. Presiona Enter y espera a que se carguen los datos.
-5. Una vez que los datos estén cargados, selecciona las celdas con los datos (incluyendo los encabezados) y cópialos (Ctrl+C) o descarga la información.
+5. Una vez que los datos estén cargados, selecciona las celdas con los datos (incluyendo los encabezados) y cópialos (Ctrl+C).
 6. Abre un editor de texto (como Notepad) y pega los datos copiados (Ctrl+V).
 7. Guarda el archivo con el nombre "DJ_data.csv" y asegúrate de seleccionar "All Files" en el tipo de archivo para que se guarde como CSV. Asegúrate de que el archivo se guarde con la extensión .csv y no como un archivo de texto
 '''
@@ -142,8 +142,8 @@ st.write(f"Valor predicho con CatBoost para {prediction_datetime_str}: **{predic
 st.write(f"Valor predicho con KNN para {prediction_datetime_str}: **{prediction_knn[0]:.2f}**")
 
 # Calculando la media normalizada entre prediccion y prediction
-media_normalizada = (prediccion_svr[0] + prediccion_catboost[0] + prediction_knn[0]) / 3
-st.write(f"Valor predicho con media normalizada para {prediction_datetime_str}: **{media_normalizada:.2f}**")
+media_geometrica =  (prediccion_svr[0] * prediccion_catboost[0] * prediction_knn[0]) ** (1/3)
+st.write(f"Valor predicho con media geométrica para {prediction_datetime_str}: **{media_geometrica:.2f}**")
 
 st.subheader("Visualización de Datos Históricos y Predicciones")
 plot_data = data[['Date', 'Close']].copy()
@@ -154,6 +154,6 @@ combined_plot_data = plot_data.copy()
 combined_plot_data.loc[fecha_obj_pred, 'SVR'] = prediccion_svr[0]
 combined_plot_data.loc[fecha_obj_pred, 'CatBoost'] = prediccion_catboost[0]
 combined_plot_data.loc[fecha_obj_pred, 'KNN'] = prediction_knn[0]
-combined_plot_data.loc[fecha_obj_pred, 'Media'] = media_normalizada
+combined_plot_data.loc[fecha_obj_pred, 'Media'] = media_geometrica
 
 st.line_chart(combined_plot_data[['Close', 'SVR', 'CatBoost', 'KNN', 'Media']])
