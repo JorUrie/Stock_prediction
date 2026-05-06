@@ -17,7 +17,7 @@ La información de las bolsas se consiguen de la siguiente manera:
 3. En la celda A1, escribe la siguiente fórmula para obtener datos históricos del Dow Jones:
    `=GOOGLEFINANCE("INDEXDJX:.DJI", "close", DATE(2020,1,1), DATE(2024,12,31), "DAILY")`
 4. Presiona Enter y espera a que se carguen los datos.
-5. Una vez que los datos estén cargados, selecciona las celdas con los datos (incluyendo los encabezados) y cópialos (Ctrl+C).
+5. Una vez que los datos estén cargados, selecciona las celdas con los datos (incluyendo los encabezados) y cópialos (Ctrl+C) o descárgalo.
 6. Abre un editor de texto (como Notepad) y pega los datos copiados (Ctrl+V).
 7. Guarda el archivo con el nombre "DJ_data.csv" y asegúrate de seleccionar "All Files" en el tipo de archivo para que se guarde como CSV. Asegúrate de que el archivo se guarde con la extensión .csv y no como un archivo de texto
 '''
@@ -28,22 +28,33 @@ st.title("Análisis y Predicción de Precios de Acciones")
 with st.expander("Instrucciones para obtener datos históricos"):
     st.info(Note)
 
+# --- Interfaz para subir el archivo ---
+st.sidebar.header("Carga de Datos")
+uploaded_file = st.sidebar.file_uploader("Sube tu archivo DJ_data.csv", type=["csv"])
+
 # Cargar datos y cachearlos para evitar recargas en cada interacción
 @st.cache_data
-def load_data():
-    # Obtener la ruta absoluta del archivo relativa a este script
-    base_path = os.path.dirname(__file__)
-    file_path = os.path.join(base_path, "DJ_data.csv")
-    
-    if not os.path.exists(file_path):
-        st.error(f"Error: No se encontró el archivo en la ruta: {file_path}. Verifica que 'DJ_data.csv' esté subido a tu repositorio de GitHub.")
-        st.stop()
+def load_data(file):
+    if file is not None:
+        # Leer el archivo cargado por el usuario
+        data = pd.read_csv(file, header=0)
+    else:
+        # Intentar cargar el archivo local por defecto
+        base_path = os.path.dirname(__file__)
+        file_path = os.path.join(base_path, "DJ_data.csv")
+        if os.path.exists(file_path):
+            data = pd.read_csv(file_path, header=0)
+        else:
+            return None
 
-    data = pd.read_csv(file_path, header = 0)
     data['Date'] = pd.to_datetime(data['Date'], format='%d/%m/%Y %H:%M:%S')
     return data
 
-data = load_data()
+data = load_data(uploaded_file)
+
+if data is None:
+    st.warning("⚠️ No hay datos disponibles. Por favor, sube el archivo 'DJ_data.csv' en la barra lateral para continuar.")
+    st.stop()
 
 # Convertir la columna 'Date' a datetime y luego a numérico (timestamp)
 X = (data["Date"].astype('int64') // 10**9).values.reshape(-1, 1)  # Timestamp Unix en segundos (2D)
