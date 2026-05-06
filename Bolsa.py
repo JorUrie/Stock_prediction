@@ -10,9 +10,14 @@ import yfinance as yf
 # Descargar datos directamente de Yahoo Finance (ejemplo con 1 año de historial para AAPL)
 data = yf.download('AAPL', period='1y')
 
+if data.empty:
+    print("Error: No se pudieron descargar datos de Yahoo Finance.")
+    exit()
+
 # En yfinance, la fecha es el índice (index). La convertimos a timestamp numérico.
-X = (data.index.astype('int64') // 10**9).values.reshape(-1, 1)
-y = data["Close"]
+X_raw = (data.index.astype('int64') // 10**9).values
+X = X_raw.reshape(-1, 1)
+y = data["Close"].values.ravel() # .ravel() evita la advertencia de DataConversion
 
 # Initialize and train model with CatBoost
 #model = CatBoostClassifier(iterations=200, learning_rate=0.1, depth=10, verbose=10)
@@ -39,13 +44,13 @@ X1_train, X1_test, y1_train, y1_test = train_test_split(X, y, test_size=0.3, ran
 model = CatBoostRegressor(loss_function='RMSE', iterations=500, learning_rate=0.1, depth=6, verbose=0) # verbose=0 mutes training output
 
 # Train the model
-model.fit(X1_train, y1_train, cat_features=None if 'cat_features' in locals() else None)
+model.fit(X1_train, y1_train)
 
 # Make predictions
 y1_pred = model.predict(X1_test)
 
 # Evaluate the model
-#print("Tree Regression RMSE:", y1_pred)
+print("CatBoost Prediction on test set:", y1_pred[:5])
 #-----------------------------------------------------------------------------------------------------------------------
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.30, random_state=42)
 # Predict with DecisionTreeClassifier
