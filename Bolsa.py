@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 from sklearn import svm
 from datetime import datetime
@@ -30,7 +31,15 @@ with st.expander("Instrucciones para obtener datos históricos"):
 # Cargar datos y cachearlos para evitar recargas en cada interacción
 @st.cache_data
 def load_data():
-    data = pd.read_csv("DJ_data.csv", header = 0)
+    # Obtener la ruta absoluta del archivo relativa a este script
+    base_path = os.path.dirname(__file__)
+    file_path = os.path.join(base_path, "DJ_data.csv")
+    
+    if not os.path.exists(file_path):
+        st.error(f"Error: No se encontró el archivo en la ruta: {file_path}. Verifica que 'DJ_data.csv' esté subido a tu repositorio de GitHub.")
+        st.stop()
+
+    data = pd.read_csv(file_path, header = 0)
     data['Date'] = pd.to_datetime(data['Date'], format='%d/%m/%Y %H:%M:%S')
     return data
 
