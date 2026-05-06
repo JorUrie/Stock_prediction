@@ -32,35 +32,21 @@ with st.expander("Instrucciones para obtener datos históricos"):
 
 # --- Interfaz para subir el archivo ---
 st.sidebar.header("Carga de Datos")
-uploaded_file = st.sidebar.file_uploader("Sube tu archivo DJ_data.csv", type=["csv"])
+uploaded_files = st.sidebar.file_uploader("Sube tus archivos CSV", type=["csv"], accept_multiple_files=True)
 
 # Cargar datos y cachearlos para evitar recargas en cada interacción
 @st.cache_data
-def load_data(file):
-    if file is not None:
-        # Leer el archivo cargado por el usuario
-        data = pd.read_csv(file, header=0)
-    else:
-        # Intentar cargar el archivo local por defecto
-        base_path = os.path.dirname(__file__)
-        file_path = os.path.join(base_path, "DJ_data.csv")
-        if os.path.exists(file_path):
-            data = pd.read_csv(file_path, header=0)
-        else:
-            return None
-
-    data['Date'] = pd.to_datetime(data['Date'], format='%d/%m/%Y %H:%M:%S')
-    return data
-
-data = load_data(uploaded_file)
-
-if data is None:
-    st.warning("⚠️ No hay datos disponibles. Por favor, sube el archivo csv en la barra lateral para continuar.")
-    st.stop()
-
-# Convertir la columna 'Date' a datetime y luego a numérico (timestamp)
-X = (data["Date"].astype('int64') // 10**9).values.reshape(-1, 1)  # Timestamp Unix en segundos (2D)
-y = data["Close"].values.ravel() # .ravel() para evitar DataConversionWarning
+def process_file_data(file_input):
+    try:
+        data = pd.read_csv(file_input, header=0)
+        # Limpieza de columnas sin nombre (Unnamed)
+        data = data.loc[:, ~data.columns.str.contains('^Unnamed')]
+        # Asegurar formato de fecha
+        data['Date'] = pd.to_datetime(data['Date'], format='%d/%m/%Y %H:%M:%S')
+        return data
+    except Exception as e:
+        st.error(f"Error al leer el archivo {getattr(file_input, 'name', 'local')}: {e}")
+        return None
 
 # Initialize and train model with CatBoost
 #model = CatBoostClassifier(iterations=200, learning_rate=0.1, depth=10, verbose=10)
@@ -76,51 +62,17 @@ def train_svr_model(X_data, y_data):
     clf.fit(X_data, y_data)
     return clf
 
-clf = train_svr_model(X, y)
-
 # --- Entrada para la Predicción ---
-st.subheader("Selecciona la fecha para la predicción")
+st.subheader("Configuración de la Proyección")
 selected_date = st.date_input("Fecha", datetime.now().date())
 selected_time = st.time_input("Hora", time(16, 0, 0))
 
-#-----------------------------------------------------------------------------------------------------------------------
-# DecisionTree Regression
-# 2. Split data into training and testing sets
-X1_train, X1_test, y1_train, y1_test = train_test_split(X, y, test_size=0.3, random_state=42)
-
-# Identify categorical features (CatBoost handles them directly if specified)
-# cat_features = ['your_categorical_column_name']
-
-# Initialize the CatBoost Regressor
-# Common loss functions for regression are 'RMSE' (default) or 'MAE'
-# Cachear el entrenamiento del modelo CatBoost
 @st.cache_resource
 def train_catboost_model(X_train_data, y_train_data):
     model = CatBoostRegressor(loss_function='RMSE', iterations=500, learning_rate=0.1, depth=6, verbose=0) # verbose=0 mutes training output
     model.fit(X_train_data, y_train_data)
     return model
 
-# Train the model
-catboost_model = train_catboost_model(X1_train, y1_train)
-
-# Make predictions
-y1_pred = catboost_model.predict(X1_test)
-
-# Evaluate the model
-#print("Tree Regression RMSE:", y1_pred)
-#-----------------------------------------------------------------------------------------------------------------------
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.30, random_state=42)
-# Predict with DecisionTreeClassifier
-
-# Combinar fecha y hora seleccionadas por el usuario
-prediction_datetime_str = f"{selected_date.strftime('%d/%m/%Y')} {selected_time.strftime('%H:%M:%S')}"
-fecha_obj_pred = datetime.strptime(prediction_datetime_str, '%d/%m/%Y %H:%M:%S')
-X_pred_input = np.array([[fecha_obj_pred.timestamp()]])
-
-prediccion_svr = clf.predict(X_pred_input)
-#-----------------------------------------------------------------------------------------------------------------------
-# Predict with KNN
-# Cachear el entrenamiento del modelo KNN
 @st.cache_resource
 def train_knn_model(X_train_data, y_train_data):
     scaler = StandardScaler()
@@ -130,32 +82,70 @@ def train_knn_model(X_train_data, y_train_data):
     knn.fit(X_train_scaled, y_train_data)
     return knn, scaler
 
-knn_model, knn_scaler = train_knn_model(X_train, y_train)
-prediction_knn = knn_model.predict(knn_scaler.transform(X_pred_input))
-#-----------------------------------------------------------------------------------------------------------------------
+# Determinar qué archivos procesar
+files_to_process = []
+if uploaded_files:
+    files_to_process = uploaded_files
+else:
+    base_path = os.path.dirname(__file__)
+    file_path = os.path.join(base_path, "DJ_data.csv")
+    if os.path.exists(file_path):
+        files_to_process = [file_path]
 
-# Predictions: 5 values
-# Predecir con CatBoost para la fecha seleccionada
-prediccion_catboost = catboost_model.predict(X_pred_input)
+if not files_to_process:
+    st.warning("⚠️ No hay datos disponibles. Por favor, sube archivos CSV en la barra lateral.")
+    st.stop()
 
-st.subheader("Resultados de la Predicción")
-st.write(f"Valor predicho con SVR para {prediction_datetime_str}: **{prediccion_svr[0]:.2f}**")
-st.write(f"Valor predicho con CatBoost para {prediction_datetime_str}: **{prediccion_catboost[0]:.2f}**")
-st.write(f"Valor predicho con KNN para {prediction_datetime_str}: **{prediction_knn[0]:.2f}**")
+for file_input in files_to_process:
+    file_name = getattr(file_input, 'name', 'DJ_data.csv')
+    with st.expander(f"Análisis para: {file_name}", expanded=True):
+        data = process_file_data(file_input)
+        if data is None: continue
 
-# Calculando la media normalizada entre prediccion y prediction
-media_geometrica =  (prediccion_svr[0] * prediccion_catboost[0] * prediction_knn[0]) ** (1/3)
-st.write(f"Valor predicho con media geométrica para {prediction_datetime_str}: **{media_geometrica:.2f}**")
+        X = (data["Date"].astype('int64') // 10**9).values.reshape(-1, 1)
+        y = data["Close"].values.ravel()
 
-st.subheader("Visualización de Datos Históricos y Predicciones")
-plot_data = data[['Date', 'Close']].copy()
-plot_data['Date'] = pd.to_datetime(plot_data['Date'])
-plot_data = plot_data.set_index('Date')
+        # Entrenar modelos
+        clf = train_svr_model(X, y)
+        X1_train, X1_test, y1_train, y1_test = train_test_split(X, y, test_size=0.3, random_state=42)
+        catboost_model = train_catboost_model(X1_train, y1_train)
+        knn_model, knn_scaler = train_knn_model(X1_train, y1_train)
 
-combined_plot_data = plot_data.copy()
-combined_plot_data.loc[fecha_obj_pred, 'SVR'] = prediccion_svr[0]
-combined_plot_data.loc[fecha_obj_pred, 'CatBoost'] = prediccion_catboost[0]
-combined_plot_data.loc[fecha_obj_pred, 'KNN'] = prediction_knn[0]
-combined_plot_data.loc[fecha_obj_pred, 'Media'] = media_geometrica
+        # Calcular 5 proyecciones
+        proyecciones = []
+        base_datetime = datetime.combine(selected_date, selected_time)
+        
+        for i in range(5):
+            current_date = base_datetime + pd.Timedelta(days=i)
+            ts = np.array([[current_date.timestamp()]])
+            
+            p_svr = clf.predict(ts)[0]
+            p_cat = catboost_model.predict(ts)[0]
+            p_knn = knn_model.predict(knn_scaler.transform(ts))[0]
+            p_geo = (p_svr * p_cat * p_knn) ** (1/3)
+            
+            proyecciones.append({
+                "Fecha": current_date,
+                "SVR": p_svr,
+                "CatBoost": p_cat,
+                "KNN": p_knn,
+                "Media Geom": p_geo
+            })
 
-st.line_chart(combined_plot_data[['Close', 'SVR', 'CatBoost', 'KNN', 'Media']])
+        df_res = pd.DataFrame(proyecciones)
+        st.write("Tabla de Proyecciones (Próximos 5 días):")
+        st.dataframe(df_res.style.format({
+            "SVR": "{:.2f}", "CatBoost": "{:.2f}", "KNN": "{:.2f}", "Media Geom": "{:.2f}"
+        }))
+
+        # Gráfica
+        plot_data = data[['Date', 'Close']].copy().set_index('Date')
+        combined_plot_data = plot_data.copy()
+        
+        for _, row in df_res.iterrows():
+            combined_plot_data.loc[row['Fecha'], 'SVR'] = row['SVR']
+            combined_plot_data.loc[row['Fecha'], 'CatBoost'] = row['CatBoost']
+            combined_plot_data.loc[row['Fecha'], 'KNN'] = row['KNN']
+            combined_plot_data.loc[row['Fecha'], 'Media'] = row['Media Geom']
+
+        st.line_chart(combined_plot_data[['Close', 'SVR', 'CatBoost', 'KNN', 'Media']])
