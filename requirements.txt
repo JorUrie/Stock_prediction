@@ -5,8 +5,8 @@ matplotlib
 pillow
 openpyxl
 python-dateutil
-scikit-learn>=1.3.0
-catboost>=1.2.0
-yfinance
+scikit-learn
+catboost==1.2.5
+yfinance==0.2.40
 requests
-urllib3>=2.0.0
+urllib3
