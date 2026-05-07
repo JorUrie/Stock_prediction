@@ -59,9 +59,12 @@ clf = svm.SVR() # Usar SVR para regresión (precios), no SVC (clasificación)
 # Cachear el entrenamiento del modelo SVR
 @st.cache_resource
 def train_svr_model(X_data, y_data):
-    clf = svm.SVR()
-    clf.fit(X_data, y_data)
-    return clf
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X_data)
+    # C=1000 y epsilon=0.1 son valores robustos para datos financieros escalados
+    clf = svm.SVR(kernel='rbf', C=1000, epsilon=0.05, gamma='scale')
+    clf.fit(X_scaled, y_data)
+    return clf, scaler
 
 # --- Entrada para la Predicción ---
 st.subheader("Configuración de la Proyección")
@@ -78,8 +81,8 @@ def train_catboost_model(X_train_data, y_train_data):
 def train_knn_model(X_train_data, y_train_data):
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train_data)
-    k_value = 5
-    knn = KNeighborsRegressor(n_neighbors=k_value)
+    # weights='distance' da más importancia a los puntos más parecidos/cercanos
+    knn = KNeighborsRegressor(n_neighbors=7, weights='distance', metric='euclidean')
     knn.fit(X_train_scaled, y_train_data)
     return knn, scaler
 
@@ -116,7 +119,7 @@ for file_input in files_to_process:
         y = data["Close"].values.ravel()
 
         # Entrenar modelos
-        clf = train_svr_model(X, y)
+        clf, svr_scaler = train_svr_model(X, y)
         X1_train, X1_test, y1_train, y1_test = train_test_split(X, y, test_size=0.3, random_state=42)
         catboost_model = train_catboost_model(X1_train, y1_train)
         knn_model, knn_scaler = train_knn_model(X1_train, y1_train)
@@ -127,7 +130,7 @@ for file_input in files_to_process:
         ts = np.array([[target_datetime.timestamp()]])
         
         # Proyecciones de regresores
-        p_svr = clf.predict(ts)[0]
+        p_svr = clf.predict(svr_scaler.transform(ts))[0]
         p_cat = catboost_model.predict(ts)[0]
         p_knn = knn_model.predict(knn_scaler.transform(ts))[0]
 
