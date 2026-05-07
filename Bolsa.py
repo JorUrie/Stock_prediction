@@ -113,7 +113,7 @@ for file_input in files_to_process:
         # --- Proyección Histórica (Walk-forward) ---
         if st.checkbox("Calcular Proyección Histórica (Paso a paso)", value=False, key=f"hist_corr_{file_name}"):
             st.info("Calculando proyecciones históricas... Esto puede tardar dependiendo del tamaño del archivo.")
-            hist_cat, hist_knn, hist_arima = [], [], []
+            hist_cat, hist_knn, hist_arima, hist_arima_vol = [], [], [], []
             start_idx = 10  # Comenzar después de 10 elementos
             
             progress_bar = st.progress(0)
@@ -132,7 +132,9 @@ for file_input in files_to_process:
                 
                 # ARIMA
                 a_m = ARIMA(curr_y, order=(5, 1, 0)).fit()
-                hist_arima.append(a_m.forecast(steps=1)[0])
+                a_forecast = a_m.get_forecast(steps=1).summary_frame(alpha=0.05)
+                hist_arima.append(a_forecast['mean'].iloc[0])
+                hist_arima_vol.append(a_forecast['mean_se'].iloc[0])
                 
                 progress_bar.progress((i - start_idx) / (len(data) - start_idx))
             
@@ -140,6 +142,7 @@ for file_input in files_to_process:
             data.loc[data.index[start_idx:], 'Cat_Hist'] = hist_cat
             data.loc[data.index[start_idx:], 'KNN_Hist'] = hist_knn
             data.loc[data.index[start_idx:], 'ARIMA_Hist'] = hist_arima
+            data.loc[data.index[start_idx:], 'ARIMA_Vol'] = hist_arima_vol
 
         # Calcular proyección para un punto
         target_datetime = datetime.combine(selected_date, selected_time)
@@ -152,7 +155,7 @@ for file_input in files_to_process:
         # Proyección ARIMA (basada en pasos desde el último dato)
         last_date = data["Date"].max()
         future_days = (target_datetime - last_date).days
-        p_arima_low, p_arima_high = None, None
+        p_arima_low, p_arima_high, p_arima_vol = None, None, None
         
         if arima_fit and future_days > 0:
             forecast_res = arima_fit.get_forecast(steps=future_days)
@@ -160,10 +163,11 @@ for file_input in files_to_process:
             p_arima = forecast_df['mean'].iloc[-1]
             p_arima_low = forecast_df['mean_ci_lower'].iloc[-1]
             p_arima_high = forecast_df['mean_ci_upper'].iloc[-1]
+            p_arima_vol = forecast_df['mean_se'].iloc[-1]
         else:
             # Si la fecha es pasada o el modelo falla, usamos el último valor conocido
             p_arima = y[-1]
-            p_arima_low, p_arima_high = p_arima, p_arima
+            p_arima_low, p_arima_high, p_arima_vol = p_arima, p_arima, 0.0
 
         p_geo = (p_cat * p_knn * p_arima) ** (1/3)
         
@@ -174,6 +178,7 @@ for file_input in files_to_process:
             "ARIMA": [p_arima],
             "ARIMA Inf (95%)": [p_arima_low],
             "ARIMA Sup (95%)": [p_arima_high],
+            "Volatilidad (ARIMA)": [p_arima_vol],
             "Media Geom": [p_geo]
         }
 
@@ -181,7 +186,8 @@ for file_input in files_to_process:
         st.write(f"Resultado de la Proyección ({target_datetime}):")
         st.dataframe(df_res.style.format({
             "CatBoost": "{:.2f}", "KNN": "{:.2f}", "ARIMA": "{:.2f}", 
-            "ARIMA Inf (95%)": "{:.2f}", "ARIMA Sup (95%)": "{:.2f}", "Media Geom": "{:.2f}"
+            "ARIMA Inf (95%)": "{:.2f}", "ARIMA Sup (95%)": "{:.2f}", 
+            "Volatilidad (ARIMA)": "{:.2f}", "Media Geom": "{:.2f}"
         }))
 
         # Gráfica
@@ -193,6 +199,11 @@ for file_input in files_to_process:
             combined_plot_data['Cat_H'] = data.set_index('Date')['Cat_Hist']
             combined_plot_data['KNN_H'] = data.set_index('Date')['KNN_Hist']
             combined_plot_data['ARIMA_H'] = data.set_index('Date')['ARIMA_Hist']
+            
+            # Gráfica de volatilidad histórica
+            st.subheader("Evolución de la Volatilidad Estimada (Standard Error)")
+            vol_plot = data[['Date', 'ARIMA_Vol']].copy().set_index('Date').dropna()
+            st.area_chart(vol_plot)
         
         combined_plot_data.loc[target_datetime, 'CatBoost'] = p_cat
         combined_plot_data.loc[target_datetime, 'KNN'] = p_knn
