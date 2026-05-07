@@ -185,8 +185,8 @@ for file_input in files_to_process:
             forecast = arima_fit.get_forecast(steps=future_days)
             p_arima = forecast.predicted_mean[-1]
             ci = forecast.conf_int()
-            arima_lower = ci.iloc[-1,0]
-            arima_upper = ci.iloc[-1,1]
+            arima_lower = ci[-1,0]
+            arima_upper = ci[-1,1]
         else:
             # Si la fecha es pasada o el modelo falla, usamos el último valor conocido
             p_arima = y[-1]
