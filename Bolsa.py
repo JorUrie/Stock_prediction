@@ -1,6 +1,5 @@
 import os
 import streamlit as st
-from sklearn import svm
 from datetime import datetime
 from sklearn.neighbors import KNeighborsRegressor
 from catboost import CatBoostRegressor
@@ -52,19 +51,6 @@ def process_file_data(file_input):
 # Initialize and train model with CatBoost
 #model = CatBoostClassifier(iterations=200, learning_rate=0.1, depth=10, verbose=10)
 #model.fit(X, y)
-
-# Initialize and train model with sklearn
-clf = svm.SVR() # Usar SVR para regresión (precios), no SVC (clasificación)
-
-# Cachear el entrenamiento del modelo SVR
-@st.cache_resource
-def train_svr_model(X_data, y_data):
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X_data)
-    # C=1000 y epsilon=0.1 son valores robustos para datos financieros escalados
-    clf = svm.SVR(kernel='rbf', C=1000, epsilon=0.05, gamma='scale')
-    clf.fit(X_scaled, y_data)
-    return clf, scaler
 
 # --- Entrada para la Predicción ---
 st.subheader("Configuración de la Proyección")
@@ -119,7 +105,6 @@ for file_input in files_to_process:
         y = data["Close"].values.ravel()
 
         # Entrenar modelos
-        clf, svr_scaler = train_svr_model(X, y)
         X1_train, X1_test, y1_train, y1_test = train_test_split(X, y, test_size=0.3, random_state=42)
         catboost_model = train_catboost_model(X1_train, y1_train)
         knn_model, knn_scaler = train_knn_model(X1_train, y1_train)
@@ -128,7 +113,7 @@ for file_input in files_to_process:
         # --- Proyección Histórica (Walk-forward) ---
         if st.checkbox("Calcular Proyección Histórica (Paso a paso)", value=False, key=f"hist_corr_{file_name}"):
             st.info("Calculando proyecciones históricas... Esto puede tardar dependiendo del tamaño del archivo.")
-            hist_svr, hist_cat, hist_knn, hist_arima = [], [], [], []
+            hist_cat, hist_knn, hist_arima = [], [], []
             start_idx = 10  # Comenzar después de 10 elementos
             
             progress_bar = st.progress(0)
@@ -136,10 +121,6 @@ for file_input in files_to_process:
                 # Datos hasta el momento i
                 curr_X, curr_y = X[:i], y[:i]
                 next_X = X[i].reshape(1, -1)
-                
-                # SVR
-                s_m, s_sc = train_svr_model(curr_X, curr_y)
-                hist_svr.append(s_m.predict(s_sc.transform(next_X))[0])
                 
                 # CatBoost (simplificado para velocidad en el bucle)
                 c_m = CatBoostRegressor(iterations=100, learning_rate=0.1, depth=4, verbose=0).fit(curr_X, curr_y)
@@ -156,7 +137,6 @@ for file_input in files_to_process:
                 progress_bar.progress((i - start_idx) / (len(data) - start_idx))
             
             # Guardar resultados históricos en el dataframe para graficar
-            data.loc[data.index[start_idx:], 'SVR_Hist'] = hist_svr
             data.loc[data.index[start_idx:], 'Cat_Hist'] = hist_cat
             data.loc[data.index[start_idx:], 'KNN_Hist'] = hist_knn
             data.loc[data.index[start_idx:], 'ARIMA_Hist'] = hist_arima
@@ -166,50 +146,54 @@ for file_input in files_to_process:
         ts = np.array([[target_datetime.timestamp()]])
         
         # Proyecciones de regresores
-        p_svr = clf.predict(svr_scaler.transform(ts))[0]
         p_cat = catboost_model.predict(ts)[0]
         p_knn = knn_model.predict(knn_scaler.transform(ts))[0]
 
         # Proyección ARIMA (basada en pasos desde el último dato)
         last_date = data["Date"].max()
         future_days = (target_datetime - last_date).days
+        p_arima_low, p_arima_high = None, None
         
         if arima_fit and future_days > 0:
-            forecast = arima_fit.forecast(steps=future_days)
-            p_arima = forecast[-1]
+            forecast_res = arima_fit.get_forecast(steps=future_days)
+            forecast_df = forecast_res.summary_frame(alpha=0.05) # Intervalo del 95%
+            p_arima = forecast_df['mean'].iloc[-1]
+            p_arima_low = forecast_df['mean_ci_lower'].iloc[-1]
+            p_arima_high = forecast_df['mean_ci_upper'].iloc[-1]
         else:
             # Si la fecha es pasada o el modelo falla, usamos el último valor conocido
             p_arima = y[-1]
+            p_arima_low, p_arima_high = p_arima, p_arima
 
-        p_geo = (p_svr * p_cat * p_knn * p_arima) ** (1/4)
+        p_geo = (p_cat * p_knn * p_arima) ** (1/3)
         
         res_data = {
             "Fecha": [target_datetime],
-            "SVR": [p_svr],
             "CatBoost": [p_cat],
             "KNN": [p_knn],
             "ARIMA": [p_arima],
+            "ARIMA Inf (95%)": [p_arima_low],
+            "ARIMA Sup (95%)": [p_arima_high],
             "Media Geom": [p_geo]
         }
 
         df_res = pd.DataFrame(res_data)
         st.write(f"Resultado de la Proyección ({target_datetime}):")
         st.dataframe(df_res.style.format({
-            "SVR": "{:.2f}", "CatBoost": "{:.2f}", "KNN": "{:.2f}", "ARIMA": "{:.2f}", "Media Geom": "{:.2f}"
+            "CatBoost": "{:.2f}", "KNN": "{:.2f}", "ARIMA": "{:.2f}", 
+            "ARIMA Inf (95%)": "{:.2f}", "ARIMA Sup (95%)": "{:.2f}", "Media Geom": "{:.2f}"
         }))
 
         # Gráfica
         plot_data = data[['Date', 'Close']].copy().set_index('Date')
         combined_plot_data = plot_data.copy()
-
+ 
         # Añadir las series históricas si existen
-        if 'SVR_Hist' in data.columns:
-            combined_plot_data['SVR_H'] = data.set_index('Date')['SVR_Hist']
+        if 'Cat_Hist' in data.columns:
             combined_plot_data['Cat_H'] = data.set_index('Date')['Cat_Hist']
             combined_plot_data['KNN_H'] = data.set_index('Date')['KNN_Hist']
             combined_plot_data['ARIMA_H'] = data.set_index('Date')['ARIMA_Hist']
         
-        combined_plot_data.loc[target_datetime, 'SVR'] = p_svr
         combined_plot_data.loc[target_datetime, 'CatBoost'] = p_cat
         combined_plot_data.loc[target_datetime, 'KNN'] = p_knn
         combined_plot_data.loc[target_datetime, 'ARIMA'] = p_arima
