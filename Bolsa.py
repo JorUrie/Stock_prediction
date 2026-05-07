@@ -6,6 +6,7 @@ from sklearn.neighbors import KNeighborsRegressor
 from catboost import CatBoostRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from statsmodels.tsa.arima.model import ARIMA
 import pandas as pd
 import numpy as np
 from datetime import date, time # Import date and time for st.date_input, st.time_input
@@ -82,6 +83,15 @@ def train_knn_model(X_train_data, y_train_data):
     knn.fit(X_train_scaled, y_train_data)
     return knn, scaler
 
+@st.cache_resource
+def train_arima_model(y_data):
+    try:
+        # Order (5,1,0) es un punto de partida común para datos financieros diarios
+        model = ARIMA(y_data, order=(5, 1, 0))
+        return model.fit()
+    except Exception:
+        return None
+
 # Determinar qué archivos procesar
 files_to_process = []
 if uploaded_files:
@@ -110,28 +120,43 @@ for file_input in files_to_process:
         X1_train, X1_test, y1_train, y1_test = train_test_split(X, y, test_size=0.3, random_state=42)
         catboost_model = train_catboost_model(X1_train, y1_train)
         knn_model, knn_scaler = train_knn_model(X1_train, y1_train)
+        arima_fit = train_arima_model(y)
 
         # Calcular proyección para un punto
         target_datetime = datetime.combine(selected_date, selected_time)
         ts = np.array([[target_datetime.timestamp()]])
         
+        # Proyecciones de regresores
         p_svr = clf.predict(ts)[0]
         p_cat = catboost_model.predict(ts)[0]
         p_knn = knn_model.predict(knn_scaler.transform(ts))[0]
-        p_geo = (p_svr * p_cat * p_knn) ** (1/3)
+
+        # Proyección ARIMA (basada en pasos desde el último dato)
+        last_date = data["Date"].max()
+        future_days = (target_datetime - last_date).days
+        
+        if arima_fit and future_days > 0:
+            forecast = arima_fit.forecast(steps=future_days)
+            p_arima = forecast.iloc[-1]
+        else:
+            # Si la fecha es pasada o el modelo falla, usamos el último valor conocido
+            p_arima = y[-1]
+
+        p_geo = (p_svr * p_cat * p_knn * p_arima) ** (1/4)
         
         res_data = {
             "Fecha": [target_datetime],
             "SVR": [p_svr],
             "CatBoost": [p_cat],
             "KNN": [p_knn],
+            "ARIMA": [p_arima],
             "Media Geom": [p_geo]
         }
 
         df_res = pd.DataFrame(res_data)
         st.write(f"Resultado de la Proyección ({target_datetime}):")
         st.dataframe(df_res.style.format({
-            "SVR": "{:.2f}", "CatBoost": "{:.2f}", "KNN": "{:.2f}", "Media Geom": "{:.2f}"
+            "SVR": "{:.2f}", "CatBoost": "{:.2f}", "KNN": "{:.2f}", "ARIMA": "{:.2f}", "Media Geom": "{:.2f}"
         }))
 
         # Gráfica
@@ -141,6 +166,7 @@ for file_input in files_to_process:
         combined_plot_data.loc[target_datetime, 'SVR'] = p_svr
         combined_plot_data.loc[target_datetime, 'CatBoost'] = p_cat
         combined_plot_data.loc[target_datetime, 'KNN'] = p_knn
+        combined_plot_data.loc[target_datetime, 'ARIMA'] = p_arima
         combined_plot_data.loc[target_datetime, 'Media'] = p_geo
 
-        st.line_chart(combined_plot_data[['Close', 'SVR', 'CatBoost', 'KNN', 'Media']])
+        st.line_chart(combined_plot_data[['Close', 'SVR', 'CatBoost', 'KNN', 'ARIMA', 'Media']])
