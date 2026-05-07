@@ -95,6 +95,16 @@ def train_arima_model(y_data):
     except Exception:
         return None
 
+# Determinar qué archivos procesar
+files_to_process = []
+if uploaded_files:
+    files_to_process = uploaded_files
+else:
+    base_path = os.path.dirname(__file__)
+    file_path = os.path.join(base_path, "DJ_data.csv")
+    if os.path.exists(file_path):
+        files_to_process = [file_path]
+
 if not files_to_process:
     st.warning("⚠️ No hay datos disponibles. Por favor, sube archivos CSV en la barra lateral.")
     st.stop()
