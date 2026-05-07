@@ -81,8 +81,6 @@ def train_catboost_model(X_train_data, y_train_data):
 def train_knn_model(X_train_data, y_train_data):
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train_data)
-    k_value = 5
-    knn = KNeighborsRegressor(n_neighbors=k_value)
     # weights='distance' da más importancia a los puntos más parecidos/cercanos
     knn = KNeighborsRegressor(n_neighbors=7, weights='distance', metric='euclidean')
     knn.fit(X_train_scaled, y_train_data)
@@ -121,19 +119,53 @@ for file_input in files_to_process:
         y = data["Close"].values.ravel()
 
         # Entrenar modelos
-        clf = train_svr_model(X, y)
         clf, svr_scaler = train_svr_model(X, y)
         X1_train, X1_test, y1_train, y1_test = train_test_split(X, y, test_size=0.3, random_state=42)
         catboost_model = train_catboost_model(X1_train, y1_train)
         knn_model, knn_scaler = train_knn_model(X1_train, y1_train)
         arima_fit = train_arima_model(y)
 
+        # --- Proyección Histórica (Walk-forward) ---
+        if st.checkbox("Calcular Proyección Histórica (Paso a paso)", value=False):
+            st.info("Calculando proyecciones históricas... Esto puede tardar dependiendo del tamaño del archivo.")
+            hist_svr, hist_cat, hist_knn, hist_arima = [], [], [], []
+            start_idx = 10  # Comenzar después de 10 elementos
+            
+            progress_bar = st.progress(0)
+            for i in range(start_idx, len(data)):
+                # Datos hasta el momento i
+                curr_X, curr_y = X[:i], y[:i]
+                next_X = X[i].reshape(1, -1)
+                
+                # SVR
+                s_m, s_sc = train_svr_model(curr_X, curr_y)
+                hist_svr.append(s_m.predict(s_sc.transform(next_X))[0])
+                
+                # CatBoost (simplificado para velocidad en el bucle)
+                c_m = CatBoostRegressor(iterations=100, learning_rate=0.1, depth=4, verbose=0).fit(curr_X, curr_y)
+                hist_cat.append(c_m.predict(next_X)[0])
+                
+                # KNN
+                k_m, k_sc = train_knn_model(curr_X, curr_y)
+                hist_knn.append(k_m.predict(k_sc.transform(next_X))[0])
+                
+                # ARIMA
+                a_m = ARIMA(curr_y, order=(5, 1, 0)).fit()
+                hist_arima.append(a_m.forecast(steps=1)[0])
+                
+                progress_bar.progress((i - start_idx) / (len(data) - start_idx))
+            
+            # Guardar resultados históricos en el dataframe para graficar
+            data.loc[data.index[start_idx:], 'SVR_Hist'] = hist_svr
+            data.loc[data.index[start_idx:], 'Cat_Hist'] = hist_cat
+            data.loc[data.index[start_idx:], 'KNN_Hist'] = hist_knn
+            data.loc[data.index[start_idx:], 'ARIMA_Hist'] = hist_arima
+
         # Calcular proyección para un punto
         target_datetime = datetime.combine(selected_date, selected_time)
         ts = np.array([[target_datetime.timestamp()]])
         
         # Proyecciones de regresores
-        p_svr = clf.predict(ts)[0]
         p_svr = clf.predict(svr_scaler.transform(ts))[0]
         p_cat = catboost_model.predict(ts)[0]
         p_knn = knn_model.predict(knn_scaler.transform(ts))[0]
@@ -169,6 +201,13 @@ for file_input in files_to_process:
         # Gráfica
         plot_data = data[['Date', 'Close']].copy().set_index('Date')
         combined_plot_data = plot_data.copy()
+
+        # Añadir las series históricas si existen
+        if 'SVR_Hist' in data.columns:
+            combined_plot_data['SVR_H'] = data.set_index('Date')['SVR_Hist']
+            combined_plot_data['Cat_H'] = data.set_index('Date')['Cat_Hist']
+            combined_plot_data['KNN_H'] = data.set_index('Date')['KNN_Hist']
+            combined_plot_data['ARIMA_H'] = data.set_index('Date')['ARIMA_Hist']
         
         combined_plot_data.loc[target_datetime, 'SVR'] = p_svr
         combined_plot_data.loc[target_datetime, 'CatBoost'] = p_cat
@@ -176,4 +215,5 @@ for file_input in files_to_process:
         combined_plot_data.loc[target_datetime, 'ARIMA'] = p_arima
         combined_plot_data.loc[target_datetime, 'Media'] = p_geo
 
-        st.line_chart(combined_plot_data[['Close', 'SVR', 'CatBoost', 'KNN', 'ARIMA', 'Media']])
+        cols_to_plot = [c for c in combined_plot_data.columns if c != 'Date']
+        st.line_chart(combined_plot_data[cols_to_plot])
