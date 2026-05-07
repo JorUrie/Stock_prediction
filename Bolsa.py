@@ -126,7 +126,7 @@ for file_input in files_to_process:
         arima_fit = train_arima_model(y)
 
         # --- Proyección Histórica (Walk-forward) ---
-        if st.checkbox("Calcular Proyección Histórica (Paso a paso). Se activa la validación de ventana expandida", value=False):
+        if st.checkbox("Calcular Proyección Histórica (Paso a paso)", value=False, key=f"hist_corr_{file_name}"):
             st.info("Calculando proyecciones históricas... Esto puede tardar dependiendo del tamaño del archivo.")
             hist_svr, hist_cat, hist_knn, hist_arima = [], [], [], []
             start_idx = 10  # Comenzar después de 10 elementos
