@@ -137,7 +137,7 @@ for file_input in files_to_process:
         
         if arima_fit and future_days > 0:
             forecast = arima_fit.forecast(steps=future_days)
-            p_arima = forecast.iloc[-1]
+            p_arima = forecast[-1]
         else:
             # Si la fecha es pasada o el modelo falla, usamos el último valor conocido
             p_arima = y[-1]
