@@ -10,7 +10,6 @@ from statsmodels.tsa.arima.model import ARIMA
 import pandas as pd
 import numpy as np
 from datetime import date, time # Import date and time for st.date_input, st.time_input
-import matplotlib.pyplot as plt
 
 Note = '''
 La información de las bolsas se consiguen de la siguiente manera:
@@ -130,7 +129,6 @@ for file_input in files_to_process:
         if st.checkbox("Calcular Proyección Histórica (Paso a paso)", value=False, key=f"hist_corr_{file_name}"):
             st.info("Calculando proyecciones históricas... Esto puede tardar dependiendo del tamaño del archivo.")
             hist_svr, hist_cat, hist_knn, hist_arima = [], [], [], []
-            hist_arima_lower, hist_arima_upper = [], []
             start_idx = 10  # Comenzar después de 10 elementos
             
             progress_bar = st.progress(0)
@@ -152,11 +150,8 @@ for file_input in files_to_process:
                 hist_knn.append(k_m.predict(k_sc.transform(next_X))[0])
                 
                 # ARIMA
-                forecast = arima_fit.get_forecast(steps=1)
-                hist_arima.append(forecast.predicted_mean[0])
-                ci = forecast.conf_int()
-                hist_arima_lower.append(ci.iloc[0,0])
-                hist_arima_upper.append(ci.iloc[0,1])
+                a_m = ARIMA(curr_y, order=(5, 1, 0)).fit()
+                hist_arima.append(a_m.forecast(steps=1)[0])
                 
                 progress_bar.progress((i - start_idx) / (len(data) - start_idx))
             
@@ -165,8 +160,6 @@ for file_input in files_to_process:
             data.loc[data.index[start_idx:], 'Cat_Hist'] = hist_cat
             data.loc[data.index[start_idx:], 'KNN_Hist'] = hist_knn
             data.loc[data.index[start_idx:], 'ARIMA_Hist'] = hist_arima
-            data.loc[data.index[start_idx:], 'ARIMA_Lower'] = hist_arima_lower
-            data.loc[data.index[start_idx:], 'ARIMA_Upper'] = hist_arima_upper
 
         # Calcular proyección para un punto
         target_datetime = datetime.combine(selected_date, selected_time)
@@ -182,16 +175,11 @@ for file_input in files_to_process:
         future_days = (target_datetime - last_date).days
         
         if arima_fit and future_days > 0:
-            forecast = arima_fit.get_forecast(steps=future_days)
-            p_arima = forecast.predicted_mean[-1]
-            ci = forecast.conf_int()
-            arima_lower = ci[-1,0]
-            arima_upper = ci[-1,1]
+            forecast = arima_fit.forecast(steps=future_days)
+            p_arima = forecast[-1]
         else:
             # Si la fecha es pasada o el modelo falla, usamos el último valor conocido
             p_arima = y[-1]
-            arima_lower = np.nan
-            arima_upper = np.nan
 
         p_geo = (p_svr * p_cat * p_knn * p_arima) ** (1/4)
         
@@ -201,15 +189,13 @@ for file_input in files_to_process:
             "CatBoost": [p_cat],
             "KNN": [p_knn],
             "ARIMA": [p_arima],
-            "ARIMA Lower": [arima_lower],
-            "ARIMA Upper": [arima_upper],
             "Media Geom": [p_geo]
         }
 
         df_res = pd.DataFrame(res_data)
         st.write(f"Resultado de la Proyección ({target_datetime}):")
         st.dataframe(df_res.style.format({
-            "SVR": "{:.2f}", "CatBoost": "{:.2f}", "KNN": "{:.2f}", "ARIMA": "{:.2f}", "ARIMA Lower": "{:.2f}", "ARIMA Upper": "{:.2f}", "Media Geom": "{:.2f}"
+            "SVR": "{:.2f}", "CatBoost": "{:.2f}", "KNN": "{:.2f}", "ARIMA": "{:.2f}", "Media Geom": "{:.2f}"
         }))
 
         # Gráfica
@@ -222,8 +208,6 @@ for file_input in files_to_process:
             combined_plot_data['Cat_H'] = data.set_index('Date')['Cat_Hist']
             combined_plot_data['KNN_H'] = data.set_index('Date')['KNN_Hist']
             combined_plot_data['ARIMA_H'] = data.set_index('Date')['ARIMA_Hist']
-            combined_plot_data['ARIMA_L'] = data.set_index('Date')['ARIMA_Lower']
-            combined_plot_data['ARIMA_U'] = data.set_index('Date')['ARIMA_Upper']
         
         combined_plot_data.loc[target_datetime, 'SVR'] = p_svr
         combined_plot_data.loc[target_datetime, 'CatBoost'] = p_cat
@@ -231,29 +215,5 @@ for file_input in files_to_process:
         combined_plot_data.loc[target_datetime, 'ARIMA'] = p_arima
         combined_plot_data.loc[target_datetime, 'Media'] = p_geo
 
-        fig, ax = plt.subplots(figsize=(12, 6))
-        ax.plot(combined_plot_data.index, combined_plot_data['Close'], label='Close', linewidth=2)
-        
-        if 'SVR_H' in combined_plot_data.columns:
-            ax.plot(combined_plot_data.index, combined_plot_data['SVR_H'], label='SVR Hist', linestyle='--')
-            ax.plot(combined_plot_data.index, combined_plot_data['Cat_H'], label='CatBoost Hist', linestyle='--')
-            ax.plot(combined_plot_data.index, combined_plot_data['KNN_H'], label='KNN Hist', linestyle='--')
-            ax.plot(combined_plot_data.index, combined_plot_data['ARIMA_H'], label='ARIMA Hist', linestyle='--')
-            ax.fill_between(combined_plot_data.index, combined_plot_data['ARIMA_L'], combined_plot_data['ARIMA_U'], alpha=0.3, label='ARIMA CI', color='blue')
-        
-        # Plot future points
-        future_mask = combined_plot_data.index == target_datetime
-        ax.scatter(combined_plot_data.index[future_mask], combined_plot_data.loc[future_mask, 'SVR'], label='SVR Future', marker='o', s=50)
-        ax.scatter(combined_plot_data.index[future_mask], combined_plot_data.loc[future_mask, 'CatBoost'], label='CatBoost Future', marker='o', s=50)
-        ax.scatter(combined_plot_data.index[future_mask], combined_plot_data.loc[future_mask, 'KNN'], label='KNN Future', marker='o', s=50)
-        ax.scatter(combined_plot_data.index[future_mask], combined_plot_data.loc[future_mask, 'ARIMA'], label='ARIMA Future', marker='o', s=50)
-        ax.scatter(combined_plot_data.index[future_mask], combined_plot_data.loc[future_mask, 'Media'], label='Media Future', marker='o', s=50)
-        
-        if not np.isnan(arima_lower):
-            ax.errorbar(target_datetime, p_arima, yerr=[[p_arima - arima_lower], [arima_upper - p_arima]], fmt='o', color='red', label='ARIMA CI Future', capsize=5)
-        
-        ax.set_xlabel('Date')
-        ax.set_ylabel('Price')
-        ax.legend()
-        ax.grid(True)
-        st.pyplot(fig)
+        cols_to_plot = [c for c in combined_plot_data.columns if c != 'Date']
+        st.line_chart(combined_plot_data[cols_to_plot])
